@@ -183,19 +183,22 @@ with tab1:
 
 # GEO-INTELLIGENCE (Map)
 
+# GEO-INTELLIGENCE (Map)
 with tab2:
-    st.subheader("🗺️ Geospatial Outbreak Heatmap")
+    col_header, col_toggle = st.columns([3, 1])
+    with col_header:
+        st.subheader("🗺️ Geospatial Outbreak Heatmap")
+    with col_toggle:
+        # FIX: Toggle to bypass WebGL/Hardware issues on Windows/Linux
+        use_lite_mode = st.toggle("🚀 Lite Mode", value=False, help="Enable if map is blank or slow")
     
-    # 1. SAFE CENTER CALCULATION (Prevents Map Crash)
-    # We default to Delhi Center if data is missing or invalid
+    # 1. SAFE CENTER CALCULATION
     default_center = [28.6139, 77.2090]
     
     if not filtered_df.empty:
-        # Calculate mean, but check for NaNs just in case
         lat_mean = filtered_df['lat'].mean()
         lon_mean = filtered_df['lon'].mean()
         
-        # If mean calculation fails (e.g. data is there but lat is NaN), use default
         if pd.notna(lat_mean) and pd.notna(lon_mean):
             center = [lat_mean, lon_mean]
             zoom = 13 if len(selected_locs) <= 2 else 11
@@ -207,43 +210,53 @@ with tab2:
         zoom = 11
         st.warning("⚠️ No data available for Heatmap in this selection.")
 
-    # 2. MAP CREATION
-    # We use 'OpenStreetMap' as a backup if Dark Matter fails to load
-    try:
-        m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB dark_matter')
-    except:
-        m = folium.Map(location=center, zoom_start=zoom, tiles='OpenStreetMap')
-
-    Fullscreen().add_to(m)
-    
-    if not filtered_df.empty:
-        # Heatmap Layer
-        # Drop any rows with NaN lat/lon before plotting to avoid errors
-        map_data = filtered_df.dropna(subset=['lat', 'lon'])
-        heat_data = map_data[['lat', 'lon', 'severity_score']].values.tolist()
-        
-        if heat_data:
-            HeatMap(heat_data, radius=20, blur=15, gradient={0.4: 'blue', 0.7: 'lime', 1: 'red'}).add_to(m)
-        
-        # Cluster Layer
-        marker_cluster = MarkerCluster(name="Specific Alerts").add_to(m)
-        for _, row in map_data.head(80).iterrows():
-            folium.Marker(
-                location=[row['lat'], row['lon']],
-                popup=f"<b>{row['location']}</b><br>{row['detected_symptom']}<br>Severity: {row['severity_score']}",
-                icon=folium.Icon(color='red' if row['severity_score'] > 7 else 'orange', icon='heart')
-            ).add_to(marker_cluster)
+    # 2. RENDER MAP BASED ON MODE
+    if use_lite_mode:
+        # --- LITE MODE (Fix for Hardware Acceleration Issues) ---
+        # Uses native Streamlit map which works on 100% of devices
+        if not filtered_df.empty:
+            st.info("ℹ️ Displaying basic satellite view (Lite Mode active)")
+            st.map(filtered_df.dropna(subset=['lat', 'lon']), size=20, color='#FF4B4B')
+        else:
+            st.map(pd.DataFrame({'lat': [center[0]], 'lon': [center[1]]}))
             
-        # JNU Marker
-        if 'JNU' in location_coords:
-            folium.CircleMarker(
-                location=location_coords['JNU'], radius=10, color='#00FF99', fill=True, popup="JNU Campus Sensor"
-            ).add_to(m)
+    else:
+        # --- PRO MODE (Your original Heatmap) ---
+        try:
+            # Try Dark Matter (Best visuals)
+            m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB dark_matter')
+        except:
+            # Fallback to OSM if Dark Matter is blocked by firewall/browser
+            m = folium.Map(location=center, zoom_start=zoom, tiles='OpenStreetMap')
 
-    # 3. RENDER WITH EXPLICIT WIDTH
-    # Setting width=700 often fixes the "invisible map" bug in tabs
-    st_folium(m, width=1000, height=550, returned_objects=[])
+        Fullscreen().add_to(m)
+        
+        if not filtered_df.empty:
+            # Heatmap Layer
+            map_data = filtered_df.dropna(subset=['lat', 'lon'])
+            heat_data = map_data[['lat', 'lon', 'severity_score']].values.tolist()
+            
+            if heat_data:
+                HeatMap(heat_data, radius=20, blur=15, gradient={0.4: 'blue', 0.7: 'lime', 1: 'red'}).add_to(m)
+            
+            # Cluster Layer
+            marker_cluster = MarkerCluster(name="Specific Alerts").add_to(m)
+            for _, row in map_data.head(80).iterrows():
+                folium.Marker(
+                    location=[row['lat'], row['lon']],
+                    popup=f"<b>{row['location']}</b><br>{row['detected_symptom']}<br>Severity: {row['severity_score']}",
+                    icon=folium.Icon(color='red' if row['severity_score'] > 7 else 'orange', icon='heart')
+                ).add_to(marker_cluster)
+                
+            # JNU Marker
+            if 'JNU' in location_coords:
+                folium.CircleMarker(
+                    location=location_coords['JNU'], radius=10, color='#00FF99', fill=True, popup="JNU Campus Sensor"
+                ).add_to(m)
 
+        # 3. RENDER WITH EXPLICIT WIDTH & KEY
+        # Adding 'key' helps prevents re-render loops in tabs
+        st_folium(m, width=1000, height=550, returned_objects=[], key="folium_map")
 # TREND ANALYSIS 
 with tab3:
     st.subheader("📈 Correlation & Temporal Analysis")
