@@ -307,4 +307,4 @@ with tab4:
 
 # Footer
 st.markdown("---")
-st.caption("Developed by Areeba and team ")
+
